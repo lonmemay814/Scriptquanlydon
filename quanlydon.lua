@@ -1,101 +1,133 @@
--- Script chạy phía client (LocalScript) trong StarterGui
-local DataStoreService = game:GetService("DataStoreService")
-local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local player = game:GetService("Players").LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Tạo DataStore để lưu dữ liệu
-local orderDataStore = DataStoreService:GetDataStore("PlayerOrders")
+local filePath = "BloxFruitOrderData.txt"
 
-local player = game.Players.LocalPlayer
-local gui = Instance.new("ScreenGui")
-gui.Parent = player:WaitForChild("PlayerGui")
-gui.Name = "OrderManagement"
-
--- Tạo khung chính (màu đen mờ, thu nhỏ)
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 200, 0, 80) -- Kích thước nhỏ hơn, chỉ chiếm góc trên
-frame.Position = UDim2.new(0, 10, 0, 10) -- Góc trên bên trái
-frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-frame.BackgroundTransparency = 0.5
-frame.Parent = gui
-
--- Nút đóng giao diện
-local closeButton = Instance.new("TextButton")
-closeButton.Size = UDim2.new(0, 20, 0, 20)
-closeButton.Position = UDim2.new(1, -30, 0, 5)
-closeButton.Text = "X"
-closeButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeButton.TextScaled = true
-closeButton.Parent = frame
-
--- Hàm che tên người dùng
-local function maskUsername(username)
-    if #username <= 3 then return username end
-    local firstPart = string.sub(username, 1, 3)
-    local lastChar = string.sub(username, -1)
-    return firstPart .. "****" .. lastChar
+local SaveOrderData = ReplicatedStorage:FindFirstChild("SaveOrderData")
+if not SaveOrderData then
+    SaveOrderData = Instance.new("RemoteEvent")
+    SaveOrderData.Name = "SaveOrderData"
+    SaveOrderData.Parent = ReplicatedStorage
 end
 
--- Nhãn thông tin người chơi (Tên)
-local nameLabel = Instance.new("TextLabel")
-nameLabel.Size = UDim2.new(0, 150, 0, 30)
-nameLabel.Position = UDim2.new(0, 10, 0, 10)
-nameLabel.BackgroundTransparency = 1
-nameLabel.Text = "Tên: " .. maskUsername(player.Name)
-nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-nameLabel.TextScaled = true
-nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-nameLabel.Parent = frame
-
--- Nhãn số đơn (Đơn)
-local orderCountLabel = Instance.new("TextLabel")
-orderCountLabel.Size = UDim2.new(0, 150, 0, 30)
-orderCountLabel.Position = UDim2.new(0, 10, 0, 40)
-orderCountLabel.BackgroundTransparency = 1
-orderCountLabel.Text = "Đơn: 0"
-orderCountLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-orderCountLabel.TextScaled = true
-orderCountLabel.TextXAlignment = Enum.TextXAlignment.Left
-orderCountLabel.Parent = frame
-
--- Biến lưu số lượng đơn
-local orderCount = 0
-
--- Hàm cập nhật thông tin
-local function updatePlayerInfo()
-    nameLabel.Text = "Tên: " .. maskUsername(player.Name)
-    orderCountLabel.Text = "Đơn: " .. orderCount
+local function canSaveData()
+    return (writefile and readfile and isfile) ~= nil    
 end
 
--- Xử lý nút đóng
-closeButton.MouseButton1Click:Connect(function()
-    gui.Enabled = false -- Ẩn giao diện
-end)
-
--- Tải dữ liệu khi người chơi tham gia
-local function loadPlayerData()
-    local success, data = pcall(function()
-        return orderDataStore:GetAsync(player.UserId .. "-orders")
-    end)
-    if success and data then
-        orderCount = data.orderCount or 0
+local function saveLocalDataForPlayer(username, data)
+    if not canSaveData() then
+        warn("Executor không hỗ trợ lưu file!")
+        return
     end
-    updatePlayerInfo()
-end
+    
+    local allData = {}
 
--- Lưu dữ liệu khi người chơi thoát
-player.AncestryChanged:Connect(function()
-    if player.Parent == nil then
-        local success, err = pcall(function()
-            orderDataStore:SetAsync(player.UserId .. "-orders", {
-                orderCount = orderCount
-            })
+    if isfile(filePath) then
+        local content = readfile(filePath)
+        local success, parsed = pcall(function()
+            return HttpService:JSONDecode(content)
         end)
-        if not success then
-            warn("Lỗi khi lưu dữ liệu: " .. err)
+        if success and typeof(parsed) == "table" then
+            allData = parsed
         end
     end
+
+    allData[username] = data
+    local encoded = HttpService:JSONEncode(allData)
+    writefile(filePath, encoded)
+end
+
+local function loadLocalDataForPlayer(username)
+    if canSaveData() and isfile(filePath) then
+        local content = readfile(filePath)
+        local success, parsed = pcall(function()
+            return HttpService:JSONDecode(content)
+        end)
+        if success and typeof(parsed) == "table" then
+            return parsed[username] or "0"
+        end
+    end
+    return "0"
+end
+
+local function hideName(name)
+    local visibleLength = math.max(3, math.floor(#name * 0.5))
+    local hiddenPart = string.rep("*", #name - visibleLength)
+    return string.sub(name, 1, visibleLength) .. hiddenPart
+end
+
+-- GUI
+local nameHub = Instance.new("ScreenGui")
+nameHub.Name = "NameHub"
+nameHub.Parent = playerGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Parent = nameHub
+mainFrame.Size = UDim2.new(0, 200, 0, 65)
+mainFrame.Position = UDim2.new(0.5, 0, 0.1, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BackgroundTransparency = 0.2
+mainFrame.BorderSizePixel = 0
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+mainFrame.Active = true
+mainFrame.Draggable = true
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0.15, 0)
+uiCorner.Parent = mainFrame
+
+local nameLabel = Instance.new("TextLabel")
+nameLabel.Parent = mainFrame
+nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+nameLabel.Position = UDim2.new(0, 0, 0, 0)
+nameLabel.BackgroundTransparency = 1
+nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+nameLabel.TextScaled = true
+nameLabel.Font = Enum.Font.GothamBold
+nameLabel.Text = "Tên : " .. hideName(player.Name)
+nameLabel.TextXAlignment = Enum.TextXAlignment.Left -- Căn trái
+
+local jobTitle = Instance.new("TextLabel")
+jobTitle.Parent = mainFrame
+jobTitle.Size = UDim2.new(0.3, 0, 0.5, 0)
+jobTitle.Position = UDim2.new(0, 0, 0.5, 0)
+jobTitle.BackgroundTransparency = 1
+jobTitle.TextColor3 = Color3.fromRGB(255, 223, 88)
+jobTitle.TextScaled = true
+jobTitle.Font = Enum.Font.GothamBold
+jobTitle.Text = "Đơn :"
+jobTitle.TextXAlignment = Enum.TextXAlignment.Left -- Căn trái
+
+local jobBox = Instance.new("TextBox")
+jobBox.Parent = mainFrame
+jobBox.Size = UDim2.new(0.7, 0, 0.5, 0)
+jobBox.Position = UDim2.new(0.3, 0, 0.5, 0)
+jobBox.BackgroundTransparency = 1
+jobBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+jobBox.TextScaled = true
+jobBox.Font = Enum.Font.GothamBold
+jobBox.Text = ""
+jobBox.ClearTextOnFocus = false
+jobBox.TextWrapped = true
+jobBox.TextXAlignment = Enum.TextXAlignment.Left -- Căn trái cho ô nhập
+
+jobBox.FocusLost:Connect(function(enterPressed)
+    if enterPressed and jobBox.Text ~= "" then
+        jobBox.Text = jobBox.Text
+    end
 end)
 
--- Tải dữ liệu ban đầu
-loadPlayerData()
+jobBox.FocusLost:Connect(function()
+    local orderData = jobBox.Text
+    saveLocalDataForPlayer(player.Name, orderData)
+    SaveOrderData:FireServer(orderData)
+end)
+
+SaveOrderData.OnClientEvent:Connect(function(orderData)
+    jobBox.Text = orderData
+end)
+
+jobBox.Text = loadLocalDataForPlayer(player.Name)
+SaveOrderData:FireServer("request")
